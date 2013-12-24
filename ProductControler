@@ -1,0 +1,155 @@
+<?php if ( ! defined('BASEPATH')) exit('No direct script access allowed');
+
+class Products extends MX_Controller {
+
+    public function __construct() {
+        parent::__construct();   
+    }
+    
+    public function index($shop) {
+        
+        $this->load->model('categories_model');   
+
+        // Ist eine Kategorie Ausgewählt?
+        $cat = FALSE;
+        if($this->uri->rsegment(3) == TRUE) {
+            $seg = explode('-', $this->uri->rsegment(3), 3);
+            if($seg[0] == 'm' || $seg[0] == 'f' ) {
+                if($seg[0] == 'm')
+                    $kind = 'menu';
+                else
+                    $kind = 'food';
+                
+                $id = $seg[1];
+                
+                $cat = $this->categories_model->check_cat($shop->id, $id, $kind);
+                if($cat != FALSE) {
+                    if($cat->main_id != NULL) {
+                        $selected['kind'] = $kind;
+                        $selected['main'] = $cat->main_id;
+                        $selected['sub'] = $id;
+                    } else {
+                        $selected['kind'] = $kind;
+                        $selected['main'] = $id;
+                        $selected['sub'] = FALSE;
+                    }
+                }
+            }
+        }
+        
+        // Erste Kategorie als ausgewählt setzen.
+        if($cat == FALSE) {
+            $selected = $this->categories_model->get_first_cat($shop->id);
+            if($selected != FALSE)
+                $cat = $selected['cat'];
+        }
+        
+        if($selected != FALSE) {
+        
+            // Überprüfen ob eine Main-Kategorie mit Sub-Kategorien aufgerufen wurde.
+            if($selected['sub'] == FALSE) {
+                $categories = $this->categories_model->get_all_sub_cat($shop->id, $cat->id, $selected['kind']);
+                if($categories != FALSE) {
+                    $cat = $categories->row(0);
+                }
+            }
+ 
+        
+            switch ($selected['kind']) {
+                case 'menu':
+                    $template = $this->menucard($cat, $shop);
+                    $template['theme_url'] = base_url() . 'application/views/' . $shop->design . '/';
+					
+                    $this->load->view($shop->design . '/menus', $template);
+                    break;
+
+                case 'food':
+                    $template = $this->foodcard($cat, $shop);
+                    $template['theme_url'] = base_url() . 'application/views/' . $shop->design . '/';
+					// get mobile var to pass value to mobile app
+					$product_mobile = $this->input->get('product_mobile', TRUE);
+					if($product_mobile)
+					{
+						
+						 $this->load->view($shop->design . '/mobile/products', $template);
+					}
+					else {
+						 $this->load->view($shop->design . '/products', $template);
+					}
+                   
+                    break;
+            }
+        } else {
+            $template['catname'] = '';
+            $template['description'] = '';
+            $template['menus'] = array();
+            $template['theme_url'] = base_url() . 'application/views/' . $shop->design . '/';
+            $template['foodpictures'] = FALSE;
+            $this->load->view($shop->design . '/menus', $template);
+        }
+        
+    }
+    
+    public function menucard($cat, $shop) {
+        // Gibt Menüs aus.
+        // Kategorie Name.
+        $template['catname'] = $cat->name;
+        $template['description'] = $cat->description;
+        
+        // Kategorie Größen auslesen und übergeben.
+
+        $this->load->model('products_model');
+        //$catsize = $this->products_model->get_cat_size($cat->id);
+        //print_r("menucard".$this->products_model->get_cat_size($cat->id));
+        //$template['catsize'] = $catsize;
+            
+        // Menüs auslesen.
+        $menus = $this->products_model->get_menus($cat->id, $shop);
+        
+        if ( ! $menus ) {
+            //**** Fehlermeldung.
+            $error_msg = 'Keine Produkte in der Menu-Kategorie angelegt. (Shop ID: ' . $shop->id . ', Menu-Kategorie ID: ' . $cat->id . ')';
+            log_message('info', $error_msg);
+            $system_email = $this->config->item('error_email');
+            //send_email($system_email, 'Speisekarte Error - Fehlermeldung Shopsystem Hammerpizza', $error_msg);
+        }
+        $template['shop'] = $shop;
+        $template['menus'] = $menus;
+        
+        return $template;
+    }
+    
+    public function foodcard($cat, $shop) {
+        // Gibt Speisen aus.
+        // Kategorie Name.
+        $template['catname'] = $cat->name;
+        $template['description'] = $cat->description;
+        
+        // Kategorie Größen auslesen und übergeben.
+        $this->load->model('products_model');
+        $catsize = $this->products_model->get_cat_size($cat->id, $shop);
+      
+        $template['catsize'] = $catsize;
+            
+        // Speisen mit Größen auslesen.
+        $products = $this->products_model->get_products_with_size($cat->id, $shop);
+         if($products == FALSE) {
+            //**** Fehlermeldung.
+            $error_msg = 'Keine Produkte in der Food-Kategorie angelegt. (Shop ID: ' . $shop->id . ', Food-Kategorie ID: ' . $cat->id . ')';
+            log_message('info', $error_msg);
+            $system_email = $this->config->item('error_email');
+            //send_email($system_email, 'Speisekarte Error - Fehlermeldung Shopsystem Hammerpizza', $error_msg);            
+        }
+        $template['products'] = $products;
+		// get mobile var to pass value to mobile app
+		$product_mobile = $this->input->get('product_mobile', TRUE);
+		if($product_mobile)
+		{
+			echo(json_encode($products));
+		}
+		
+        
+        return $template;
+    }
+}
+?>
