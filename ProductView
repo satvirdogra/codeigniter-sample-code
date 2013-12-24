@@ -1,0 +1,131 @@
+<div id="foodpicture">
+    <div id="slideshow">
+        
+    </div>
+   
+	          <span style="margin-bottom: 15px;float:left; font-size: 19px;font-weight: normal; color: #BC5600;"><?=$catname?> <?php if($description != ''): ?><span style="margin-top: 17px;font-size: 12px; font-weight: normal; color: #BC5600;" class="small"><?=$description?></span><?php endif; ?></span>
+</div>
+<!-- Products -->
+<div id="product_list">
+    <table class="myStuffTab"  >
+       <tr >
+		<?php echo $catsize; ?>
+           	 <?php if($catsize == FALSE): ?>
+			<td class="productTd" >&nbsp;</td>	
+                <td class="priceH"  ><?=lang('shop_products_price')?></td>
+            <?php elseif($catsize->num_rows() > 1): ?>
+		<td class="productTd" >&nbsp;</td>
+
+                <?php foreach($catsize->result() as $size): ?>
+                    <td class="priceH" ><?=$size->name?></td>
+                <?php endforeach; ?>
+            <?php else: ?>
+			<td class="productTd" >&nbsp;</td>
+                <td class="priceH"  ><?=lang('shop_products_price')?></td>
+            <?php endif; ?>
+	
+        </tr>
+        <?php if($products == FALSE || empty($products)): ?>
+            </table>
+            <p class="message"><?=lang('shop_products_noproducts')?></p>
+           <?php else: ?>
+        <?php 
+        $line = 'even';
+        $count = 0;
+        $cols = 3;
+		$price_col_width = 63;
+		$table_width = 529; 
+        if($catsize != FALSE) 
+		{
+		$cols = 2+$catsize->num_rows();
+		$description_width = $table_width- ( (1+$catsize->num_rows()) * $price_col_width);
+		$description_width .= 'px';
+		//echo $description_width;
+		}
+		
+        ?>
+        <?php foreach($products as $product): ?>
+        <?php $count++; ?>
+        <tr class="<?=$line?>">
+          
+            <td class="productTd" style="width:<?=$description_width ?>;">
+             <b><?=$product->name?></b>
+                <?php 
+                if(!empty($product->additive_ids)) {
+                    foreach($product->additive_ids as $addId)?> <?php echo '<sup>'.$addId.') </sup>';?>
+              <?php  } ?>
+                <br />
+                <?php if($product->description != ''): ?><span class="myStuffPoduct" style="width:<?=$description_width ?>;"> <?=$product->description?><br /></span><?php endif; ?>
+                <?php if($product->ingredient_description != ''): ?>
+                    <span class="myStuffPoduct" style="width:<?=$description_width ?>;"><?=$product->ingredient_description?></span>
+                <?php endif; ?>
+				
+            </td>
+            <?php echo $catsize; ?>
+            <?php if($catsize == FALSE): ?>
+            <td class="price">
+                -
+            </td>
+            <?php else: ?>
+				
+                <?php foreach($catsize->result() as $size): ?>
+			<?php //echo $catsize->result();?>
+                    <?php if(isset($product->price[$size->name])): ?>
+            <td class="price" >
+                <?php /* <!-- <a href="javascript:void(0);" onclick="xajax_add_to_cart(<?=$product->id?>, '<?=$product->name?>', <?=$size->id?>, '<?=$size->name?>', <?=$product->price[$size->name]?>, 999999, 999999, '<?=$product->article_no?>');" title="<?=$product->name?> <?=lang('shop_products_add')?><?php
+                            if ($product->special_price_info[$size->name]):
+                                ?> - <?=$product->special_price_info[$size->name];?><?
+                            endif;
+                            ?>"><?=$product->format_price[$size->name]?><?
+                            if ($product->special_price_info[$size->name]):
+                                ?><strong title="<?=$product->special_price_info[$size->name];?>"> !</strong><?
+                            endif; ?></a>
+                <a href="javascript:void(0);" onclick="xajax_add_to_cart(<?=$product->id?>, '<?=$product->name?>', <?=$size->id?>, '<?=$size->name?>', <?=$product->price[$size->name]?>, 999999, 999999, '<?=$product->article_no?>');" title="<?=$product->name?> <?=lang('shop_products_add')?>"><img src="<?=$theme_url?>gfx/add2.png" alt="<?=lang('shop_products_add')?>" class="down" /></a> --> */ ?>
+                <a href="javascript:void(0);" onclick="lockedclick(function(){ xajax_add_to_cart(<?=$product->id?>, '<?=$product->name?>', <?=$size->id?>, '<?=$size->name?>', <?=$product->price[$size->name]?>, 999999, 999999, '<?=$product->article_no?>'); });" title="<?=$product->name?> <?=lang('shop_products_add')?><?php
+                            if ($product->special_price_info[$size->name]):
+                                ?> - <?=$product->special_price_info[$size->name];?><?
+                            endif;
+                            ?>"><?=$product->format_price[$size->name]?><?
+                            if ($product->special_price_info[$size->name]):
+                                ?><strong title="<?=$product->special_price_info[$size->name];?>"> !</strong><?
+                            endif; ?></a>
+                <a href="javascript:void(0);" onclick="lockedclick(function(){ xajax_add_to_cart(<?=$product->id?>, '<?=$product->name?>', <?=$size->id?>, '<?=$size->name?>', <?=$product->price[$size->name]?>, 999999, 999999, '<?=$product->article_no?>'); });" title="<?=$product->name?> <?=lang('shop_products_add')?>"><img src="<?=$theme_url?>img/new-design/plus_img.png" alt="<?=lang('shop_products_add')?>" class="down" /></a>
+			  </td>
+		       <?php else: //Kein Preis ?>
+				   <td class="price">
+              			&nbsp;
+                   </td>       
+                    <?php endif; ?>
+                <?php endforeach; ?>
+            <?php endif; ?>
+		
+        </tr>
+<tr>
+<td>
+					<img  style="width:520px" src="<?=$theme_url?>img/new-design/line2.jpg"/>
+					</td>
+
+					</tr>
+        <?php
+            if($line == 'even'):
+                $line = 'odd';
+            else:
+                $line = 'even';
+            endif;
+        ?>
+        <?php endforeach; ?>
+        <?php for(;$count < 30;$count++): ?>
+            <tr class="<?=$line?>">
+                <td colspan="<?=$cols;?>"></td>
+            </tr>
+        <?php
+            if($line == 'even'):
+                $line = 'odd';
+            else:
+                $line = 'even';
+            endif;
+        ?>
+        <?php endfor; ?>
+    </table>
+        <?php endif; ?>
+</div>
