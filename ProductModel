@@ -1,0 +1,370 @@
+<?php if (!defined('BASEPATH')) {
+	exit('No direct script access allowed');
+}
+
+class Products_model extends CI_Model
+{
+
+	public function __construct() {
+		parent::__construct();
+	}
+
+	public function get_cat_size($catid) {
+		// Gibt, wenn vorhanden, die Kategorie-Größen zurück.
+		$this->db->select('*');
+		$this->db->from('m_food_size');
+		$this->db->where('m_food_category_id', $catid);
+		$this->db->order_by('sort DESC');
+		//$this->db->order_by('sort');
+		$catsize = $this->db->get();
+		
+		if ($catsize->num_rows() > 0) {
+			
+			return $catsize;
+		} else {
+			
+			return false;
+		}
+	}
+
+	public function get_products_with_size($catid, $shop) {
+		// Gibt alle Speisen mit den einzelnen Größen und Preisen einer Kategorie aus.
+		/*$this->db->select('*');
+		$this->db->from('m_food');
+		$this->db->where('m_food_category_id', $catid);
+		//$this->db->order_by('CAST(article_no as int)', 'asc'); // nicht wirklich schön...
+		$this->db->order_by('article_no+0', 'asc');
+		//$this->db->order_by('id', 'asc');
+		$products = $this->db->get();*/
+
+		$query = $this->db->query('
+			SELECT * 
+			FROM m_food
+			WHERE m_food_category_id=' . $catid . '
+                        ORDER BY `article_no` DESC');
+		$tmpproducts = $query->result();
+
+		$products = array();
+		foreach ($tmpproducts as $product) {
+			$products[$product->article_no] = $product;
+		}
+		uksort($products, "strnatcasecmp");
+
+		$help = false;
+		foreach ($products as $product) {
+			$product->article_no = htmlspecialchars($product->article_no);
+			$product->name = htmlspecialchars($product->name);
+			$product->description = htmlspecialchars($product->description);
+			$product->ingredient_description = htmlspecialchars($product->ingredient_description);
+                        
+            
+                        //Zusatzstoffe
+                        $this->db->select('m_additive_id');
+                        $this->db->from('m_food_has_m_additive');
+                        $this->db->where('m_food_id', $product->id);
+                        $additives = $this->db->get();
+                        $product->additive_ids = array();
+                        foreach($additives->result() as $additive) {
+                            $product->additive_ids[] = $additive->m_additive_id;
+                        }
+
+			$this->db->select('*');
+			$this->db->from('m_food_has_m_food_size');
+			$this->db->join('m_food_size', 'm_food_size.id = m_food_has_m_food_size.m_food_size_id');
+			$this->db->where('m_food_id', $product->id);
+			$this->db->where('m_food_category_id', $catid);
+			$prices = $this->db->get();
+			$product->special_price_info = false;
+			foreach ($prices->result() as $price) {
+				// Spezieller Preis vorhanden?
+				$specialprice = $this->db->query('
+                    SELECT * 
+                    FROM m_food_special_price, m_food_special_price_has_m_food_size 
+                    WHERE m_food_id=' . $product->id . '
+                    AND m_food_special_price_id = id
+                    AND m_food_size_id =' . $price->m_food_size_id
+				);
+				$sp = false; // Special Preis erstmal nicht vorhanden.
+				$product->special_price_info[$price->name] = false;
+				$prio = 5; // Zur Erkennung welcher Special Preis überschrieben werden darf.
+
+				// Aktuelles Datum und aktuelle Uhrzeit ermitteln anhand der Zeitzone des Lieferdienstes.
+				// $timestamp = gmt_to_shoptime($shop, now());
+				$timestamp = gmt_to_shoptime($shop);
+				$date = mdate('%Y-%m-%d', $timestamp);
+				$time = mdate('%H:%i:%s', $timestamp);
+
+				if ($specialprice->num_rows() > 0) {
+					foreach ($specialprice->result() as $spprice) {
+						// Datum und Uhrzeit angegeben und aktuelle Zeit innerhalb des Zeitraums?
+						if ($spprice->date_from != null && $spprice->date_to != null && $spprice->time_from != null && $spprice->time_to != null) {
+							if ($date >= $spprice->date_from && $date <= $spprice->date_to && $time >= $spprice->time_from && $time < $spprice->time_to) {
+								$sp = $spprice->price;
+								$product->special_price_info[$price->name] = sprintf(
+									lang('shop_products_special_price_datetime d_f %1$s - d_t %2$s t_f %3$s - t_t %4$s n_p %5$s s_p %6$s'),
+									country_date($spprice->date_from, $shop->iso2),
+									country_date($spprice->date_to, $shop->iso2),
+									format_time($spprice->time_from),
+									format_time($spprice->time_to),
+									format_price($price->price, $shop->currency_symbol, $shop->decimal_point),
+									format_price($spprice->price, $shop->currency_symbol, $shop->decimal_point)
+								); // oder besser doch ins Template verlagern, samt Typ und Daten?
+								break; // $prio = 1;
+							}
+						}
+
+						// Nur ein Datum angegeben?
+						if ($spprice->date_from != null && $spprice->date_to != null && $spprice->time_from == null && $spprice->time_to == null && $prio > 2) {
+							if ($date >= $spprice->date_from && $date <= $spprice->date_to) {
+								$sp = $spprice->price;
+								$product->special_price_info[$price->name] = sprintf(
+									lang('shop_products_special_price_date d_f %1$s - d_t %2$s n_p %3$s s_p %4$s'),
+									country_date($spprice->date_from, $shop->iso2),
+									country_date($spprice->date_to, $shop->iso2),
+									format_price($price->price, $shop->currency_symbol, $shop->decimal_point),
+									format_price($spprice->price, $shop->currency_symbol, $shop->decimal_point)
+								); // oder besser doch ins Template verlagern, samt Typ und Daten?
+								$prio = 2;
+							}
+						}
+
+						// Nur eine Uhrzeit angegeben?
+						if ($spprice->date_from == null && $spprice->date_to == null && $spprice->time_from != null && $spprice->time_to != null && $prio > 3) {
+							if ($time >= $spprice->time_from && $time < $spprice->time_to) {
+								$sp = $spprice->price;
+								$product->special_price_info[$price->name] = sprintf(
+									lang('shop_products_special_price_time t_f %1$s - t_t %2$s n_p %3$s s_p %4$s'),
+									format_time($spprice->time_from),
+									format_time($spprice->time_to),
+									format_price($price->price, $shop->currency_symbol, $shop->decimal_point),
+									format_price($spprice->price, $shop->currency_symbol, $shop->decimal_point)
+								); // oder besser doch ins Template verlagern, samt Typ und Daten?
+								$prio = 3;
+							}
+						}
+
+						// Keine Datum- und Zeitangaben?
+						if ($spprice->date_from == null && $spprice->date_to == null && $spprice->time_from == null && $spprice->time_to == null && $prio > 4) {
+							$sp = $spprice->price;
+							$product->special_price_info[$price->name] = sprintf(
+								lang('shop_products_special_price n_p %1$s s_p %2$s'),
+								format_price($price->price, $shop->currency_symbol, $shop->decimal_point),
+								format_price($spprice->price, $shop->currency_symbol, $shop->decimal_point)
+							); // oder besser doch ins Template verlagern, samt Typ und Daten?
+							$prio = 4;
+						}
+					}
+				}
+
+				if ($sp != false) {
+					$price->price = $sp;
+				}
+
+				$product->price[$price->name] = $price->price;
+				$product->size = $price->m_food_size_id;
+				$product->format_price[$price->name] = format_price($product->price[$price->name], $shop->currency_symbol, $shop->decimal_point);
+			}
+			$help[] = $product;
+		}
+		return $help;
+	}
+
+	public function get_menus($cat_id, $shop) {
+		// Gibt alle Menüs mit Preis und einer Beschreibung zurück.
+		$query = $this->db->query('
+            SELECT *
+            FROM m_menu
+            WHERE m_menu_category_id = ' . $cat_id);
+		if (!$query->num_rows() > 0) {
+			return false;
+		}
+		$menus = array();
+		foreach ($query->result() as $menu) {
+			// Verfügbarkeit testen
+			$menu->available = $this->products_model->check_menu((array)$menu, $shop);
+			// Formtierten Preis setzen.
+			$menu->format_price = format_price($menu->price, $shop->currency_symbol, $shop->decimal_point);
+			// Formatiertes Datum setzen
+			$menu->format_orderdate_from = null;
+			$menu->format_orderdate_to = null;
+			if (!is_null($menu->orderdate_from)) {
+				$menu->format_orderdate_from = country_date($menu->orderdate_from, $shop->iso2);
+			}
+			if (!is_null($menu->orderdate_to)) {
+				$menu->format_orderdate_to = country_date($menu->orderdate_to, $shop->iso2);
+			}
+			// Formatierte Zeit setzen
+			$menu->format_ordertime_from = null;
+			$menu->format_ordertime_to = null;
+			if (!is_null($menu->ordertime_from)) {
+				$menu->format_ordertime_from = format_time($menu->ordertime_from);
+			}
+			if (!is_null($menu->ordertime_to)) {
+				$menu->format_ordertime_to = format_time($menu->ordertime_to);
+			}
+			// Formatierte Wochentage
+			$menu->format_order_weekdays = null;
+			$weekdays = array(
+				0 => 'monday',
+				1 => 'tuesday',
+				2 => 'wednesday',
+				3 => 'thursday',
+				4 => 'friday',
+				5 => 'saturday',
+				6 => 'sunday'
+			);
+			$menu->order_weekdays = false;
+			$weekdaysavail = array();
+			// Wochentage in array übernehmen
+			foreach ($weekdays as $daynumber => $dayofweek) {
+				if ($menu->{'order_' . $dayofweek}) {
+					$weekdaysavail[] = lang('shop_weekday_' . $daynumber);
+				}
+			}
+			unset($weekdays);
+			// Formatieren: z.B. "Montag, Dienstag und Freitag" oder "Dienstag und Donnerstag"
+			if (!empty($weekdaysavail)) {
+				$menu->order_weekdays = $weekdaysavail;
+				$lastday = array_pop($weekdaysavail);
+				if (empty($weekdaysavail)) {
+					$menu->format_order_weekdays = $lastday;
+				} else {
+					$menu->format_order_weekdays = implode(', ', $weekdaysavail) . ' ' . lang('shop_and') . ' ' . $lastday;
+				}
+				unset($lastday);
+			}
+			unset($weekdaysavail);
+			$menus[] = $menu;
+		}
+		return $menus;
+	}
+
+	public function get_ingredients_cat_quantity($food_id) {
+		// Gibt die Anzahl und die Id's der Muss-Zutaten-Kategorien zurück.
+		$query = $this->db->query('
+            SELECT id
+            FROM m_ingredient_category
+            WHERE m_food_id = ' . $food_id
+		);
+		if ($query->num_rows() > 0) {
+			$categories['quantity'] = $query->num_rows();
+			$categories['ids'] = array();
+			foreach ($query->result() as $category) {
+				$categories['ids'][] = $category->id;
+			}
+			return $categories;
+		} else {
+			return false;
+		}
+	}
+
+	public function get_ingredient_category($cat_id) {
+		// Gibt eine Muss-Zutaten-Kategorien zurück.
+		$this->db->select('*');
+		$this->db->from('m_ingredient_category');
+		$this->db->where('id', $cat_id);
+		$category = $this->db->get();
+		if ($category->num_rows() > 0) {
+			return $category->row();
+		} else {
+			return false;
+		}
+	}
+
+	public function get_cat_ingredients($category_id, $shop) {
+		// Gibt alle Zutaten zu einer Kategorie (Beilage) aus.
+		$query = $this->db->query('
+			SELECT m_ingredient.id
+			, IF(m_ingredient_lang.id IS NULL, m_ingredient.name, m_ingredient_lang.name) AS name
+			, IF(m_ingredient_lang.id IS NULL, m_ingredient.description, m_ingredient_lang.description) AS description
+			, IF(m_ingredient_category_has_m_ingredient.price IS NULL, 0, m_ingredient_category_has_m_ingredient.price) AS price
+			FROM m_ingredient
+			LEFT JOIN m_ingredient_lang ON m_ingredient_lang.m_ingredient_id = m_ingredient.id
+			AND m_ingredient_lang.lang = ' . $this->db->escape($shop->language) . '
+			INNER JOIN m_ingredient_category_has_m_ingredient ON m_ingredient_category_has_m_ingredient.m_ingredient_id = m_ingredient.id
+			WHERE m_ingredient_category_has_m_ingredient.m_ingredient_category_id = ' . $this->db->escape($category_id) . '
+		');
+		$ingredients = array();
+		foreach ($query->result() as $ingredient) {
+			$ingredient->additives = $this->get_ingredient_additives($ingredient->id, $shop->language);
+			$ingredients[] = $ingredient;
+		}
+		return $ingredients;
+	}
+
+	public function get_product_ingredients($product_id, $size_id, $shop) {
+		// Gibt alle (optionalen) Zutaten zu einem Produkt aus.
+		$sql = 'SELECT m_ingredient.id';
+		$sql .= ', IF(m_ingredient_lang.id IS NULL, m_ingredient.name, m_ingredient_lang.name) AS name';
+		$sql .= ', IF(m_ingredient_lang.id IS NULL, m_ingredient.description, m_ingredient_lang.description) AS description';
+		$sql .= ', m_food_canhave_m_ingredient.price';
+		// $sql .= ', IF(m_food_canhave_m_ingredient.price IS NULL, 0, m_food_canhave_m_ingredient.price) AS price';
+		$sql .= ' FROM m_ingredient';
+		$sql .= ' LEFT JOIN m_ingredient_lang ON m_ingredient_lang.m_ingredient_id = m_ingredient.id AND m_ingredient_lang.lang = ' . $this->db->escape($shop->language) . '';
+		$sql .= ' INNER JOIN m_food_canhave_m_ingredient ON m_food_canhave_m_ingredient.m_ingredient_id = m_ingredient.id';
+		$sql .= ' WHERE m_food_canhave_m_ingredient.m_food_id = ' . $this->db->escape($product_id);
+		$sql .= ' AND m_food_canhave_m_ingredient.m_food_size_id = ' . $this->db->escape($size_id);
+		$query = $this->db->query($sql);
+		if ($query->num_rows() <= 0) {
+			return false;
+		}
+		$ingredients = array();
+		foreach ($query->result() as $ingredient) {
+			$ingredient->additives = $this->get_ingredient_additives($ingredient->id, $shop->language);
+			$ingredients[] = $ingredient;
+		}
+		return $ingredients;
+	}
+
+	public function get_ingredient_additives($ingredient_id, $lang) {
+		// Zusatzstoffe für das Impressum auslesen.
+		$query = $this->db->query('
+			SELECT m_additive.id, IF(m_additive_lang.id IS NULL, m_additive.name, m_additive_lang.name) AS name
+			FROM m_additive
+			LEFT JOIN m_additive_lang ON m_additive.id = m_additive_lang.m_additive_id AND lang = ' . $this->db->escape($lang) . '
+			INNER JOIN m_ingredient_has_m_additive ON m_ingredient_has_m_additive.m_additive_id = m_additive.id
+			WHERE m_ingredient_has_m_additive.m_ingredient_id = ' . $this->db->escape($ingredient_id) . '
+		');
+		$additives = array();
+		foreach ($query->result() as $additive) {
+			$additives[] = $additive;
+		}
+		return $additives;
+	}
+
+	public function check_menu($menu, $shop) {
+		// Prüft ob ein Menü bestellt werden kann.
+		// $time = gmt_to_shoptime($shop, now());
+		$time = gmt_to_shoptime($shop);
+
+		$date = mdate('%Y-%m-%d', $time);
+		$day = strtolower(mdate('%l', $time));
+		$time = mdate('%H:%i:%s', $time);
+
+		if ($menu['order_' . $day] == false) {
+			return false;
+		} elseif ($menu['orderdate_from'] == null && $menu['ordertime_from'] == null) {
+			return true;
+		} elseif ($menu['orderdate_from'] != null && $menu['ordertime_from'] != null) {
+			if ($menu['orderdate_from'] <= $date && $menu['orderdate_to'] >= $date && $menu['ordertime_from'] <= $time && $menu['ordertime_to'] >= $time) {
+				return true;
+			} else {
+				return false;
+			}
+		} elseif ($menu['orderdate_from'] != null) {
+			if ($menu['orderdate_from'] <= $date && $menu['orderdate_to'] >= $date) {
+				return true;
+			} else {
+				return false;
+			}
+		} elseif ($menu['ordertime_from'] != null) {
+			if ($menu['ordertime_from'] <= $time && $menu['ordertime_to'] >= $time) {
+				return true;
+			} else {
+				return false;
+			}
+		}
+	}
+}
+
+?>
